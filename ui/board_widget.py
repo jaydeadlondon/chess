@@ -9,6 +9,7 @@ from PyQt6.QtCore import (
     QEasingCurve,
     pyqtProperty,
     QPoint,
+    QPointF,
 )
 from PyQt6.QtGui import (
     QPainter,
@@ -19,6 +20,7 @@ from PyQt6.QtGui import (
     QLinearGradient,
     QRadialGradient,
     QPainterPath,
+    QPixmap,
 )
 
 from core.engine import ChessEngine
@@ -35,6 +37,7 @@ class BoardWidget(QWidget):
         super().__init__(parent)
         self.engine = engine
         self.theme = theme or get_theme()
+
         self.selected_square: chess.Square | None = None
         self.legal_moves_for_selected: list[chess.Move] = []
         self.drag_piece: chess.Piece | None = None
@@ -189,7 +192,7 @@ class BoardWidget(QWidget):
                     painter.setBrush(QColor(board_theme.legal_move + "88"))
                     painter.drawEllipse(to_rect.center(), dot_r, dot_r)
 
-        font = QFont("Segoe UI", max(7, int(sq_size * 0.12)))
+        font = QFont("Helvetica", max(7, int(sq_size * 0.12)))
         font.setWeight(QFont.Weight.Medium)
         painter.setFont(font)
         for i in range(8):
@@ -244,7 +247,7 @@ class BoardWidget(QWidget):
             px = get_piece_pixmap(piece, piece_size)
             x = rect.center().x() - piece_size / 2
             y = rect.center().y() - piece_size / 2
-            painter.drawPixmap(QPointF(x, y), px, px.rect())
+            painter.drawPixmap(QPointF(x, y), px, QRectF(px.rect()))
 
         if self.animating and self._anim_piece:
             from_rect = self._square_rect(self._anim_from_sq)
@@ -259,7 +262,7 @@ class BoardWidget(QWidget):
             )
             px = get_piece_pixmap(self._anim_piece, piece_size)
             painter.drawPixmap(
-                QPointF(cx - piece_size / 2, cy - piece_size / 2), px, px.rect()
+                QPointF(cx - piece_size / 2, cy - piece_size / 2), px, QRectF(px.rect())
             )
 
         if self.drag_piece and self.drag_pos:
@@ -272,9 +275,9 @@ class BoardWidget(QWidget):
             sp.setOpacity(0.3)
             sp.drawPixmap(3, 3, px)
             sp.end()
-            painter.drawPixmap(QPointF(x + 2, y + 2), shadow, shadow.rect())
+            painter.drawPixmap(QPointF(x + 2, y + 2), shadow, QRectF(shadow.rect()))
             painter.setOpacity(0.9)
-            painter.drawPixmap(QPointF(x, y), px, px.rect())
+            painter.drawPixmap(QPointF(x, y), px, QRectF(px.rect()))
             painter.setOpacity(1.0)
 
         painter.end()
@@ -373,7 +376,7 @@ class BoardWidget(QWidget):
         self._deselect()
 
         self._anim_timer = QTimer(self)
-        self._anim_timer.setInterval(16)  # ~60fps
+        self._anim_timer.setInterval(16)
         steps = self.ANIM_DURATION // 16
         self._anim_step = 0
         self._anim_steps = steps
@@ -413,6 +416,7 @@ class BoardWidget(QWidget):
         to_sq: chess.Square,
         promotion_piece: chess.PieceType,
     ):
+        """Execute a promotion move after the user has chosen."""
         move = chess.Move(from_sq, to_sq, promotion=promotion_piece)
         if self.engine.is_legal_move(move):
             self._execute_move(move)
