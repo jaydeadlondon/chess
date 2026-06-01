@@ -7,10 +7,7 @@ class ChessEngine:
         self.board = chess.Board()
         self.move_history: List[chess.Move] = []
 
-    # ── Board state ────────────────────────────────────────────
-
     def reset(self):
-        """Start a new game."""
         self.board.reset()
         self.move_history.clear()
 
@@ -26,16 +23,12 @@ class ChessEngine:
         return self.board.piece_at(square)
 
     def get_legal_moves(self, square: chess.Square) -> List[chess.Move]:
-        """All legal moves originating from *square*."""
         return [m for m in self.board.legal_moves if m.from_square == square]
 
     def is_legal_move(self, move: chess.Move) -> bool:
         return move in self.board.legal_moves
 
-    # ── Making moves ───────────────────────────────────────────
-
     def make_move(self, move: chess.Move) -> bool:
-        """Apply *move* if legal. Returns True on success."""
         if move not in self.board.legal_moves:
             return False
         self.move_history.append(move)
@@ -43,15 +36,12 @@ class ChessEngine:
         return True
 
     def undo_move(self) -> bool:
-        """Undo the last move. Returns False if no moves to undo."""
         if not self.board.move_stack:
             return False
         self.board.pop()
         if self.move_history:
             self.move_history.pop()
         return True
-
-    # ── Game status ────────────────────────────────────────────
 
     @property
     def is_check(self) -> bool:
@@ -71,11 +61,9 @@ class ChessEngine:
 
     @property
     def result(self) -> str:
-        """Returns result string: '1-0', '0-1', '1/2-1/2', or '*'."""
         return self.board.result()
 
     def outcome_text(self) -> str:
-        """Human-readable outcome."""
         if self.is_checkmate:
             winner = "Белые" if self.board.turn == chess.BLACK else "Чёрные"
             return f"{winner} победили матом!"
@@ -87,10 +75,7 @@ class ChessEngine:
             return "Ничья: правило 50 ходов / троекратное повторение."
         return ""
 
-    # ── Special moves helpers ──────────────────────────────────
-
     def is_promotion(self, move: chess.Move) -> bool:
-        """Does *move* promote a pawn?"""
         piece = self.board.piece_at(move.from_square)
         if piece is None or piece.piece_type != chess.PAWN:
             return False
@@ -102,7 +87,6 @@ class ChessEngine:
     def get_promotion_moves(
         self, from_sq: chess.Square, to_sq: chess.Square
     ) -> List[chess.Move]:
-        """Return all four promotion variants for the given from/to."""
         moves = []
         for promo in (chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT):
             move = chess.Move(from_sq, to_sq, promotion=promo)
@@ -116,17 +100,13 @@ class ChessEngine:
     def is_en_passant(self, move: chess.Move) -> bool:
         return self.board.is_en_passant(move)
 
-    # ── Utilities ──────────────────────────────────────────────
-
     def square_name(self, square: chess.Square) -> str:
         return chess.square_name(square)
 
     def move_to_san(self, move: chess.Move) -> str:
-        """Standard Algebraic Notation for *move*."""
         return self.board.san(move)
 
     def get_s_move_history(self) -> List[Tuple[str, str]]:
-        """SAN pairs: [(white_move, black_move), ...]"""
         san_list = []
         tmp_board = chess.Board()
         for move in self.move_history:
