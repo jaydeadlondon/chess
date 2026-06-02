@@ -12,10 +12,11 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QComboBox,
     QCheckBox,
+    QLineEdit,
+    QApplication,
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 
 from ui.theme import AppTheme
 from ui.pieces import get_piece_pixmap
@@ -132,8 +133,9 @@ class NewGameDialog(QDialog):
         title.setStyleSheet(
             f"color: {self.theme.text_primary}; background: transparent;"
         )
-        title.setAlignment(Qt.AlignmentFlag.AlgnCenter)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
+
         mode_label = QLabel("Режим игры:")
         mode_label.setFont(QFont("Helvetica", 10))
         mode_label.setStyleSheet(
@@ -350,3 +352,249 @@ class GameOverDialog(QDialog):
         btn_layout.addStretch()
         btn_layout.addWidget(btn_new)
         layout.addLayout(btn_layout)
+
+
+class OnlineDialog(QDialog):
+
+    DEFAULT_SERVER = "ws://localhost:8765"
+
+    def __init__(self, theme: AppTheme, parent=None):
+        super().__init__(parent)
+        self.theme = theme
+        self.action: str | None = None
+        self.server_url: str = self.DEFAULT_SERVER
+        self.room_code: str = ""
+        self.player_name: str = "Игрок"
+        self._setup_ui()
+
+    def _setup_ui(self):
+        self.setWindowTitle("Онлайн игра")
+        self.setFixedWidth(420)
+        self.setFixedHeight(480)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {self.theme.bg_card};
+                border: 2px solid {self.theme.border};
+                border-radius: 12px;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        title = QLabel("🌐 Онлайн игра")
+        title.setFont(QFont("Helvetica", 16, QFont.Weight.Bold))
+        title.setStyleSheet(
+            f"color: {self.theme.text_primary}; background: transparent;"
+        )
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        server_label = QLabel("Адрес сервера:")
+        server_label.setFont(QFont("Helvetica", 10))
+        server_label.setStyleSheet(
+            f"color: {self.theme.text_secondary}; background: transparent;"
+        )
+        layout.addWidget(server_label)
+
+        self._server_input = QLineEdit(self.DEFAULT_SERVER)
+        self._server_input.setPlaceholderText("ws://адрес:порт")
+        self._server_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {self.theme.bg_secondary};
+                color: {self.theme.text_primary};
+                border: 1px solid {self.theme.border};
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 12px;
+            }}
+            QLineEdit:focus {{
+                border-color: {self.theme.accent};
+            }}
+        """)
+        layout.addWidget(self._server_input)
+
+        name_label = QLabel("Ваше имя:")
+        name_label.setFont(QFont("Helvetica", 10))
+        name_label.setStyleSheet(
+            f"color: {self.theme.text_secondary}; background: transparent;"
+        )
+        layout.addWidget(name_label)
+
+        self._name_input = QLineEdit("Игрок")
+        self._name_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {self.theme.bg_secondary};
+                color: {self.theme.text_primary};
+                border: 1px solid {self.theme.border};
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 12px;
+            }}
+            QLineEdit:focus {{
+                border-color: {self.theme.accent};
+            }}
+        """)
+        layout.addWidget(self._name_input)
+
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.Shape.HLine)
+        sep1.setStyleSheet(f"background-color: {self.theme.border}; max-height: 1px;")
+        layout.addWidget(sep1)
+
+        create_label = QLabel("Создать комнату")
+        create_label.setFont(QFont("Helvetica", 12, QFont.Weight.Bold))
+        create_label.setStyleSheet(
+            f"color: {self.theme.text_primary}; background: transparent;"
+        )
+        layout.addWidget(create_label)
+
+        create_desc = QLabel(
+            "Нажмите кнопку и отправьте код\nдругу, чтобы начать игру."
+        )
+        create_desc.setFont(QFont("Helvetica", 9))
+        create_desc.setStyleSheet(
+            f"color: {self.theme.text_secondary}; background: transparent;"
+        )
+        layout.addWidget(create_desc)
+
+        btn_create = FlatButton("🏠 Создать комнату", self.theme, "primary")
+        btn_create.clicked.connect(self._on_create)
+        layout.addWidget(btn_create)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet(f"background-color: {self.theme.border}; max-height: 1px;")
+        layout.addWidget(sep2)
+
+        join_label = QLabel("Подключиться к комнате")
+        join_label.setFont(QFont("Helvetica", 12, QFont.Weight.Bold))
+        join_label.setStyleSheet(
+            f"color: {self.theme.text_primary}; background: transparent;"
+        )
+        layout.addWidget(join_label)
+
+        self._code_input = QLineEdit()
+        self._code_input.setPlaceholderText("Введите код комнаты (например, A3K9F2)")
+        self._code_input.setMaxLength(6)
+        self._code_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {self.theme.bg_secondary};
+                color: {self.theme.text_primary};
+                border: 1px solid {self.theme.border};
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 13px;
+                letter-spacing: 4px;
+                text-transform: uppercase;
+            }}
+            QLineEdit:focus {{
+                border-color: {self.theme.accent};
+            }}
+        """)
+        layout.addWidget(self._code_input)
+
+        btn_join = FlatButton("🔗 Подключиться", self.theme, "primary")
+        btn_join.clicked.connect(self._on_join)
+        layout.addWidget(btn_join)
+
+        layout.addStretch()
+
+        btn_cancel = FlatButton("Отмена", self.theme)
+        btn_cancel.clicked.connect(self.reject)
+        layout.addWidget(btn_cancel)
+
+    def _on_create(self):
+        self.server_url = self._server_input.text().strip()
+        self.player_name = self._name_input.text().strip() or "Игрок"
+        self.action = "create"
+        self.accept()
+
+    def _on_join(self):
+        code = self._code_input.text().strip().upper()
+        if len(code) < 4:
+            return
+        self.server_url = self._server_input.text().strip()
+        self.player_name = self._name_input.text().strip() or "Игрок"
+        self.room_code = code
+        self.action = "join"
+        self.accept()
+
+
+class WaitingForOpponentDialog(QDialog):
+
+    def __init__(self, room_code: str, theme: AppTheme, parent=None):
+        super().__init__(parent)
+        self.theme = theme
+        self._cancelled = False
+        self._setup_ui(room_code)
+
+    def _setup_ui(self, room_code: str):
+        self.setWindowTitle("Ожидание соперника")
+        self.setFixedWidth(360)
+        self.setFixedHeight(280)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {self.theme.bg_card};
+                border: 2px solid {self.theme.accent};
+                border-radius: 12px;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        spinner = QLabel("⏳")
+        spinner.setFont(QFont("Helvetica", 36))
+        spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        spinner.setStyleSheet("background: transparent;")
+        layout.addWidget(spinner)
+
+        title = QLabel("Ожидание соперника")
+        title.setFont(QFont("Helvetica", 14, QFont.Weight.Bold))
+        title.setStyleSheet(
+            f"color: {self.theme.text_primary}; background: transparent;"
+        )
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        instr = QLabel("Отправьте этот код другу:")
+        instr.setFont(QFont("Helvetica", 10))
+        instr.setStyleSheet(
+            f"color: {self.theme.text_secondary}; background: transparent;"
+        )
+        instr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(instr)
+
+        code_label = QLabel(room_code)
+        code_label.setFont(QFont("Menlo", 32, QFont.Weight.Bold))
+        code_label.setStyleSheet(f"""
+            color: {self.theme.accent};
+            background-color: {self.theme.bg_secondary};
+            border: 2px solid {self.theme.accent};
+            border-radius: 10px;
+            padding: 12px;
+        """)
+        code_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(code_label)
+
+        btn_copy = FlatButton("📋 Копировать код", self.theme)
+        btn_copy.clicked.connect(lambda: QApplication.clipboard().setText(room_code))
+        layout.addWidget(btn_copy)
+
+        layout.addStretch()
+
+        btn_cancel = FlatButton("Отмена", self.theme)
+        btn_cancel.clicked.connect(self._cancel)
+        layout.addWidget(btn_cancel)
+
+    def _cancel(self):
+        self._cancelled = True
+        self.reject()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled

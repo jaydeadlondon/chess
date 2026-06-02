@@ -1,242 +1,185 @@
-"""
-Network module for online chess play.
-Uses a simple TCP socket-based protocol with JSON messages.
-
-Protocol messages:
-- JOIN: {"type": "join", "name": "..."}
-- MOVE: {"type": "move", "from": "e2", "to": "e4", "promotion": null}
-- RESIGN: {"type": "resign"}
-- CHAT: {"type": "chat", "message": "..."}
-- STATE: {"type": "state", "fen": "...", "turn": "white"}
-
-Can run as either host (server) or client.
-"""
-
 import json
-import socket
+import subprocess
+import sys
 import threading
+import time
 import chess
-from typing import Callable, Optional
+import websockets.sync.client as ws_sync
 
 
-class ChessNetworkError(Exception):
-    pass
-
-
-class ChessClient:
+class OnlineClient:
     def __init__(self):
-        self._sock: Optional[socket.socket] = None
+        self._ws = None
         self._connected = False
-        self._on_move_received: Optional[Callable] = None
-        self._on_connected: Optional[Callable] = None
-        self._on_disconnected: Optional[Callable] = None
-        self._on_error: Optional[Callable] = None
-        self._on_chat: Optional[Callable] = None
-        self._buffer = ""
+        self._room_code = None
+        self._my_color = None
+        self._my_name = "Player"
+        self._opponent_name = ""
+        self._server_proc = None
+        self.on_move_received = None
+        self.on_room_created = None
+        self.on_room_joined = None
+        self.on_game_start = None
+        self.on_opponent_joined = None
+        self.on_opponent_disconnected = None
+        self.on_chat = None
+        self.on_error = None
 
     @property
-    def connected(self) -> bool:
-        return self._connected
+    def connected(self):
+        return self._connected and self._ws is not None
 
-    def set_callbacks(
-        self,
-        on_move: Callable = None,
-        on_connected: Callable = None,
-        on_disconnected: Callable = None,
-        on_error: Callable = None,
-        on_chat: Callable = None,
-    ):
-        self._on_move_received = on_move
-        self._on_connected = on_connected
-        self._on_disconnected = on_disconnected
-        self._on_error = on_error
-        self._on_chat = on_chat
+    @property
+    def room_code(self):
+        return self._room_code
 
-    def connect(self, host: str, port: int, name: str = "Player"):
-        try:
-            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._sock.settimeout(10)
-            self._sock.connect((host, port))
-            self._sock.settimeout(None)
-            self._connected = True
+    @property
+    def my_color(self):
+        return self._my_color
 
-            self._send({"type": "join", "name": name})
+    @property
+    def opponent_name(self):
+        return self._opponent_name
 
-            t = threading.Thread(target=self._receive_loop, daemon=True)
-            t.start()
+    def start_local_server(self, port=8765):
+        self._server_proc = subprocess.Popen(
+            [sys.executable, "relay_server.py", "--port", str(port)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(0.8)
 
-            if self._on_connected:
-                self._on_connected()
-        except Exception as e:
-            if self._on_error:
-                self._on_error(str(e))
+    def stop_local_server(self):
+        if self._server_proc:
+            self._server_proc.terminate()
+            self._server_proc = None
 
-    def send_move(self, from_sq: chess.Square, to_sq: chess.Square, promotion=None):
-        msg = {
-            "type": "move",
-            "from": chess.square_name(from_sq),
-            "to": chess.square_name(to_sq),
-            "promotion": chess.piece_name(promotion) if promotion else None,
-        }
-        self._send(msg)
+    def create_room(self, server_url, name="Player"):
+        self._my_name = name
+        self._ws = ws_sync.connect(server_url, open_timeout=5)
+        self._connected = True
+        self._send({"type": "create", "name": name})
+        raw = self._ws.recv(timeout=10)
+        msg = json.loads(raw)
+        if msg.get("type") == "room_created":
+            self._room_code = msg["code"]
+            color = msg.get("color", "white")
+            self._my_color = chess.WHITE if color == "white" else chess.BLACK
+            self._start_receive_loop()
+        else:
+            self._connected = False
+            raise ConnectionError("Неожиданный ответ сервера")
+
+    def join_room(self, server_url, room_code, name="Player"):
+        self._my_name = name
+        self._ws = ws_sync.connect(server_url, open_timeout=5)
+        self._connected = True
+        self._send({"type": "join", "code": room_code.upper().strip(), "name": name})
+        raw = self._ws.recv(timeout=10)
+        msg = json.loads(raw)
+        if msg.get("type") == "error":
+            self._connected = False
+            raise ConnectionError(msg.get("message", "Ошибка"))
+        if msg.get("type") == "room_joined":
+            self._room_code = msg["code"]
+            color = msg.get("color", "black")
+            self._my_color = chess.WHITE if color == "white" else chess.BLACK
+            self._opponent_name = msg.get("opponent", "Player")
+            self._start_receive_loop()
+        else:
+            self._connected = False
+            raise ConnectionError("Неожиданный ответ сервера")
+
+    def disconnect(self):
+        self._connected = False
+        if self._ws:
+            try:
+                self._ws.close()
+            except Exception:
+                pass
+            self._ws = None
+
+    def send_move(self, from_sq, to_sq, promotion=None):
+        self._send(
+            {
+                "type": "move",
+                "from": chess.square_name(from_sq),
+                "to": chess.square_name(to_sq),
+                "promotion": chess.piece_name(promotion) if promotion else None,
+            }
+        )
 
     def send_resign(self):
         self._send({"type": "resign"})
 
-    def send_chat(self, message: str):
+    def send_chat(self, message):
         self._send({"type": "chat", "message": message})
 
-    def disconnect(self):
-        self._connected = False
-        if self._sock:
+    def _send(self, data):
+        if self._ws and self._connected:
             try:
-                self._sock.close()
+                self._ws.send(json.dumps(data))
             except Exception:
                 pass
-        if self._on_disconnected:
-            self._on_disconnected()
 
-    def _send(self, data: dict):
-        if self._sock and self._connected:
-            try:
-                msg = json.dumps(data) + "\n"
-                self._sock.sendall(msg.encode("utf-8"))
-            except Exception as e:
-                if self._on_error:
-                    self._on_error(str(e))
-
-    def _receive_loop(self):
-        while self._connected:
-            try:
-                data = self._sock.recv(4096).decode("utf-8")
-                if not data:
-                    break
-                self._buffer += data
-                while "\n" in self._buffer:
-                    line, self._buffer = self._buffer.split("\n", 1)
-                    if line.strip():
-                        self._handle_message(line.strip())
-            except Exception:
-                break
-
-        self._connected = False
-        if self._on_disconnected:
-            self._on_disconnected()
-
-    def _handle_message(self, raw: str):
-        try:
-            msg = json.loads(raw)
-            msg_type = msg.get("type")
-
-            if msg_type == "move":
-                if self._on_move_received:
-                    from_sq = chess.parse_square(msg["from"])
-                    to_sq = chess.parse_square(msg["to"])
-                    promo = None
-                    if msg.get("promotion"):
-                        promo = chess.PIECE_NAMES.get(msg["promotion"])
-                    self._on_move_received(from_sq, to_sq, promo)
-            elif msg_type == "chat":
-                if self._on_chat:
-                    self._on_chat(msg.get("message", ""))
-            elif msg_type == "resign":
-                if self._on_disconnected:
-                    self._on_disconnected()
-        except json.JSONDecodeError:
-            pass
-
-
-class ChessServer:
-
-    def __init__(self, port: int = 5555):
-        self.port = port
-        self._server_sock: Optional[socket.socket] = None
-        self._clients: list[socket.socket] = []
-        self._running = False
-        self._on_client_joined: Optional[Callable] = None
-        self._on_move: Optional[Callable] = None
-        self._on_error: Optional[Callable] = None
-        self._buffers: dict = {}
-
-    def set_callbacks(self, on_client_joined=None, on_move=None, on_error=None):
-        self._on_client_joined = on_client_joined
-        self._on_move = on_move
-        self._on_error = on_error
-
-    def start(self):
-        self._server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._server_sock.bind(("0.0.0.0", self.port))
-        self._server_sock.listen(2)
-        self._running = True
-
-        t = threading.Thread(target=self._accept_loop, daemon=True)
+    def _start_receive_loop(self):
+        t = threading.Thread(target=self._receive_loop, daemon=True)
         t.start()
 
-    def stop(self):
-        self._running = False
-        for c in self._clients:
+    def _receive_loop(self):
+        while self._connected and self._ws:
             try:
-                c.close()
+                raw = self._ws.recv(timeout=1)
+                if raw is None:
+                    break
+                msg = json.loads(raw)
+                self._handle_message(msg)
+            except TimeoutError:
+                continue
+            except Exception:
+                break
+        was_connected = self._connected
+        self._connected = False
+        if was_connected and self.on_opponent_disconnected:
+            try:
+                self.on_opponent_disconnected()
             except Exception:
                 pass
-        if self._server_sock:
-            self._server_sock.close()
 
-    def broadcast(self, data: dict, exclude: socket.socket = None):
-        msg = json.dumps(data) + "\n"
-        for c in self._clients:
-            if c != exclude:
-                try:
-                    c.sendall(msg.encode("utf-8"))
-                except Exception:
-                    pass
-
-    def _accept_loop(self):
-        while self._running and len(self._clients) < 2:
-            try:
-                client, addr = self._server_sock.accept()
-                self._clients.append(client)
-                self._buffers[client.fileno()] = ""
-
-                t = threading.Thread(
-                    target=self._handle_client, args=(client,), daemon=True
-                )
-                t.start()
-
-                if self._on_client_joined:
-                    self._on_client_joined(addr)
-            except Exception:
-                break
-
-    def _handle_client(self, client: socket.socket):
-        while self._running:
-            try:
-                data = client.recv(4096).decode("utf-8")
-                if not data:
-                    break
-                self._buffers[client.fileno()] += data
-                while "\n" in self._buffers[client.fileno()]:
-                    line, rest = self._buffers[client.fileno()].split("\n", 1)
-                    self._buffers[client.fileno()] = rest
-                    if line.strip():
-                        self._process(client, line.strip())
-            except Exception:
-                break
-
-        if client in self._clients:
-            self._clients.remove(client)
-
-    def _process(self, client: socket.socket, raw: str):
-        try:
-            msg = json.loads(raw)
-            if msg.get("type") == "move":
-                self.broadcast(msg, exclude=client)
-                if self._on_move:
-                    self._on_move(msg)
-            elif msg.get("type") == "chat":
-                self.broadcast(msg)
-            elif msg.get("type") == "resign":
-                self.broadcast(msg, exclude=client)
-        except json.JSONDecodeError:
-            pass
+    def _handle_message(self, msg):
+        t = msg.get("type")
+        if t == "move":
+            if self.on_move_received:
+                from_sq = chess.parse_square(msg["from"])
+                to_sq = chess.parse_square(msg["to"])
+                promo = None
+                if msg.get("promotion"):
+                    for pt, nm in [
+                        (chess.QUEEN, "queen"),
+                        (chess.ROOK, "rook"),
+                        (chess.BISHOP, "bishop"),
+                        (chess.KNIGHT, "knight"),
+                    ]:
+                        if nm == msg["promotion"]:
+                            promo = pt
+                            break
+                self.on_move_received(from_sq, to_sq, promo)
+        elif t == "opponent_joined":
+            self._opponent_name = msg.get("opponent", "Player")
+            if self.on_opponent_joined:
+                self.on_opponent_joined(self._opponent_name)
+        elif t == "game_start":
+            self._opponent_name = msg.get(
+                "black" if self._my_color == chess.WHITE else "white", "Player"
+            )
+            if self.on_game_start:
+                self.on_game_start(msg.get("white", ""), msg.get("black", ""))
+        elif t == "opponent_disconnected":
+            if self.on_opponent_disconnected:
+                self.on_opponent_disconnected()
+        elif t == "chat":
+            if self.on_chat:
+                self.on_chat(msg.get("message", ""), msg.get("from_color", ""))
+        elif t == "resign":
+            if self.on_opponent_disconnected:
+                self.on_opponent_disconnected()
