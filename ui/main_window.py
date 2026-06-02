@@ -171,6 +171,7 @@ class MainWindow(QMainWindow):
         board_side = QVBoxLayout()
         board_side.setSpacing(8)
         self.timer_widget = TimerWidget(self.theme)
+        self.timer_widget.timeout.connect(self._on_timeout)
         board_side.addWidget(self.timer_widget)
         self.board_widget = BoardWidget(self.engine, self, self.theme)
         board_side.addWidget(self.board_widget, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -327,6 +328,29 @@ class MainWindow(QMainWindow):
             self.board_widget.setEnabled(is_my_turn)
             if not is_my_turn:
                 self.info_panel.set_status("⏳ Ход соперника...")
+
+    def _on_timeout(self, white_timed_out):
+        self.timer_widget.stop()
+        if white_timed_out:
+            self.engine.board.turn = chess.WHITE
+            outcome = "⏱ Время белых вышло! Чёрные победили."
+        else:
+            self.engine.board.turn = chess.BLACK
+            outcome = "⏱ Время чёрных вышло! Белые победили."
+        self.info_panel.set_status(outcome)
+        self.statusBar().showMessage(outcome)
+        self.sounds.play("checkmate")
+        record_game(
+            self.stats,
+            self.game_mode,
+            "0-1" if white_timed_out else "1-0",
+            len(self.engine.move_history),
+        )
+        if self.online_client:
+            self.online_client.disconnect()
+        dlg = GameOverDialog(outcome, self.theme, self)
+        if dlg.exec() == GameOverDialog.DialogCode.Accepted:
+            self._show_welcome()
 
     def _on_promotion_needed(self, from_sq, to_sq):
         color = self.engine.turn
@@ -558,6 +582,7 @@ class MainWindow(QMainWindow):
         self.control_panel.theme = self.theme
         self._build_ui()
         self._connect_signals()
+        self.timer_widget.timeout.connect(self._on_timeout)
         self.info_panel.set_turn(self.engine.is_white_turn)
         self.history_panel.update_moves(self.engine.get_s_move_history())
 

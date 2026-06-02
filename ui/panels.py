@@ -166,7 +166,7 @@ class MoveHistoryPanel(QWidget):
             row_layout.addWidget(num_label)
 
             w_label = QLabel(white)
-            w_label.setFont(QFont("Menlo", 10, QFont.Weight.Medium))
+            w_label.setFont(QFont("Consolas", 10, QFont.Weight.Medium))
             w_label.setStyleSheet(
                 f"color: {self.theme.text_primary}; background: transparent; padding: 2px 6px; border-radius: 4px;"
             )
@@ -175,7 +175,7 @@ class MoveHistoryPanel(QWidget):
 
             if black:
                 b_label = QLabel(black)
-                b_label.setFont(QFont("Menlo", 10, QFont.Weight.Medium))
+                b_label.setFont(QFont("Consolas", 10, QFont.Weight.Medium))
                 b_label.setStyleSheet(
                     f"color: {self.theme.text_primary}; background: transparent; padding: 2px 6px; border-radius: 4px;"
                 )
@@ -196,7 +196,6 @@ class MoveHistoryPanel(QWidget):
 
 
 class GameInfoPanel(QWidget):
-    """Shows current turn, game status."""
 
     def __init__(self, theme: AppTheme, parent=None):
         super().__init__(parent)
@@ -243,7 +242,7 @@ class GameInfoPanel(QWidget):
 
 
 class TimerWidget(QWidget):
-    """Chess clock display."""
+    timeout = pyqtSignal(bool)
 
     def __init__(self, theme: AppTheme, parent=None):
         super().__init__(parent)
@@ -262,11 +261,10 @@ class TimerWidget(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 4)
         layout.setSpacing(4)
-
         self.setStyleSheet(f"background-color: transparent;")
 
         self._white_label = QLabel("10:00")
-        self._white_label.setFont(QFont("Menlo", 16, QFont.Weight.Bold))
+        self._white_label.setFont(QFont("Consolas", 16, QFont.Weight.Bold))
         self._white_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._white_label.setMinimumWidth(80)
         self._update_timer_style(self._white_label, True)
@@ -279,7 +277,7 @@ class TimerWidget(QWidget):
         sep.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._black_label = QLabel("10:00")
-        self._black_label.setFont(QFont("Menlo", 16, QFont.Weight.Bold))
+        self._black_label.setFont(QFont("Consolas", 16, QFont.Weight.Bold))
         self._black_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._black_label.setMinimumWidth(80)
         self._update_timer_style(self._black_label, False)
@@ -314,9 +312,23 @@ class TimerWidget(QWidget):
         if not self.active:
             return
         if self.is_white_turn:
-            self.white_time = max(0, self.white_time - 1)
+            self.white_time -= 1
+            if self.white_time <= 0:
+                self.white_time = 0
+                self._update_display()
+                self.active = False
+                self._timer.stop()
+                self.timeout.emit(True)
+                return
         else:
-            self.black_time = max(0, self.black_time - 1)
+            self.black_time -= 1
+            if self.black_time <= 0:
+                self.black_time = 0
+                self._update_display()
+                self.active = False
+                self._timer.stop()
+                self.timeout.emit(False)
+                return
         self._update_display()
 
     def _update_display(self):
@@ -324,6 +336,26 @@ class TimerWidget(QWidget):
         bm, bs = divmod(self.black_time, 60)
         self._white_label.setText(f"{wm:02d}:{ws:02d}")
         self._black_label.setText(f"{bm:02d}:{bs:02d}")
+        if self.white_time <= 30:
+            self._white_label.setStyleSheet(f"""
+                QLabel {{
+                    color: #FF4444;
+                    background-color: {self.theme.bg_card};
+                    border: 2px solid #FF4444;
+                    border-radius: 8px;
+                    padding: 4px 8px;
+                }}
+            """)
+        if self.black_time <= 30:
+            self._black_label.setStyleSheet(f"""
+                QLabel {{
+                    color: #FF4444;
+                    background-color: {self.theme.bg_card};
+                    border: 2px solid #FF4444;
+                    border-radius: 8px;
+                    padding: 4px 8px;
+                }}
+            """)
 
     def start(self, is_white_turn: bool):
         self.is_white_turn = is_white_turn
@@ -348,11 +380,6 @@ class TimerWidget(QWidget):
         self._update_display()
         self._update_timer_style(self._white_label, True)
         self._update_timer_style(self._black_label, False)
-
-    def set_times(self, white_seconds: int, black_seconds: int):
-        self.white_time = white_seconds
-        self.black_time = black_seconds
-        self._update_display()
 
 
 class ControlPanel(QWidget):
