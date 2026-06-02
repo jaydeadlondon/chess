@@ -218,7 +218,3 @@ chess_game/
 ## 📄 License
 
 This project is open source. Feel free to use, modify, and distribute.
-
-<p align="center">
-  Made with Python
-</p>
