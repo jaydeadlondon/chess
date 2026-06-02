@@ -215,21 +215,6 @@ chess_game/
 
 ---
 
-## 📋 Roadmap
-
-- [x] Core chess rules
-- [x] Drag & drop with animations
-- [x] AI opponent (Stockfish + built-in)
-- [x] Online multiplayer
-- [x] Sound effects
-- [x] Welcome screen
-- [x] Timer with timeout
-- [ ] Click-to-replay in move history
-- [ ] LAN server discovery (UDP broadcast)
-- [x] Elo rating system
-
----
-
 ## 📄 License
 
 This project is open source. Feel free to use, modify, and distribute.
