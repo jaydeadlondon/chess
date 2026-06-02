@@ -434,59 +434,65 @@ MVV_LVA = {
 }
 
 
-def _find_stockfish():
-    paths = [
+def _find_stockfish_binary():
+    try:
+        from stockfish import Stockfish as _SF
+
+        sf = _SF()
+        return sf._stockfish_path
+    except Exception:
+        pass
+
+    candidates = [
         "stockfish",
+        shutil.which("stockfish"),
         "/usr/local/bin/stockfish",
         "/usr/bin/stockfish",
         "/opt/homebrew/bin/stockfish",
         "/snap/bin/stockfish",
-        "C:\\Program Files\\Stockfish\\stockfish.exe",
     ]
-    for p in paths:
-        if os.path.isfile(p) or shutil.which(p):
+    for p in candidates:
+        if p and (os.path.isfile(p) or shutil.which(p)):
             return p
-    try:
-        result = subprocess.run(
-            ["which", "stockfish"], capture_output=True, text=True, timeout=2
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception:
-        pass
     return None
 
 
-class StockfishAI:
+class ChessAI:
     def __init__(self, color, difficulty=3):
         self.color = color
         self.difficulty = difficulty
         self._engine = None
-        self._stockfish_path = _find_stockfish()
-        if self._stockfish_path:
-            try:
-                self._engine = chess.engine.SimpleEngine.popen_uci(self._stockfish_path)
-                skill = min(20, difficulty * 4)
-                self._engine.configure(
-                    {
-                        "Skill Level": skill,
-                        "Threads": 1,
-                        "Hash": 64,
-                    }
-                )
-            except Exception:
-                self._engine = None
+        self._backend = "builtin"
+        self._init_stockfish()
+
+    def _init_stockfish(self):
+        path = _find_stockfish_binary()
+        if not path:
+            return
+        try:
+            self._engine = chess.engine.SimpleEngine.popen_uci(path)
+            skill_levels = {1: 1, 2: 5, 3: 10, 4: 15, 5: 20}
+            self._engine.configure(
+                {
+                    "Skill Level": skill_levels.get(self.difficulty, 10),
+                    "Threads": 2,
+                    "Hash": 128,
+                }
+            )
+            self._backend = "stockfish"
+        except Exception:
+            self._engine = None
+            self._backend = "builtin"
 
     def get_best_move(self, board):
-        if self._engine:
+        if self._backend == "stockfish" and self._engine:
             try:
-                depth_map = {1: 5, 2: 8, 3: 12, 4: 16, 5: 20}
-                depth = depth_map.get(self.difficulty, 12)
-                result = self._engine.analyse(board, chess.engine.Limit(depth=depth))
-                return result.get("pv", [None])[0]
+                time_limits = {1: 0.05, 2: 0.1, 3: 0.3, 4: 0.8, 5: 1.5}
+                limit = chess.engine.Limit(time=time_limits.get(self.difficulty, 0.3))
+                result = self._engine.play(board, limit)
+                return result.move
             except Exception:
                 pass
-
         return BuiltInAI(self.color, self.difficulty).get_best_move(board)
 
     def quit(self):
@@ -508,7 +514,6 @@ class BuiltInAI:
     def get_best_move(self, board):
         depth = self.DEPTH_MAP.get(self.difficulty, 3)
         self.nodes_searched = 0
-
         moves = list(board.legal_moves)
         self._order_moves(moves, board)
         random.shuffle(moves)
@@ -520,7 +525,6 @@ class BuiltInAI:
             board.push(move)
             score = self._minimax(board, depth - 1, float("-inf"), float("inf"), False)
             board.pop()
-
             if self.color == chess.WHITE:
                 if score > best_score:
                     best_score = score
@@ -529,7 +533,6 @@ class BuiltInAI:
                 if score < best_score:
                     best_score = score
                     best_move = move
-
         return best_move
 
     def _order_moves(self, moves, board):
@@ -554,10 +557,8 @@ class BuiltInAI:
         self.nodes_searched += 1
         if depth == 0 or board.is_game_over():
             return self._evaluate(board)
-
         moves = list(board.legal_moves)
         self._order_moves(moves, board)
-
         if maximizing:
             max_eval = float("-inf")
             for move in moves:
@@ -586,7 +587,6 @@ class BuiltInAI:
             return -100000 if board.turn == chess.WHITE else 100000
         if board.is_stalemate() or board.is_insufficient_material():
             return 0
-
         score = 0
         for sq in chess.SQUARES:
             piece = board.piece_at(sq)
@@ -601,8 +601,4 @@ class BuiltInAI:
                     else table[chess.square_mirror(sq)]
                 )
             score += value if piece.color == chess.WHITE else -value
-
         return score
-
-
-ChessAI = StockfishAI
