@@ -208,16 +208,21 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(1)
 
     def _quick_start(self, mode):
-        dlg = NewGameDialog(self.theme, self)
-        dlg.mode = mode
-        dlg._set_mode(mode)
         if mode == "ai":
+            dlg = NewGameDialog(self.theme, self)
+            dlg._set_mode(mode)
+            if dlg.exec() == NewGameDialog.DialogCode.Accepted:
+                self._start_new_game(dlg)
+                self._show_game()
+        else:
+            dlg = NewGameDialog(self.theme, self)
+            dlg.mode = mode
             dlg.ai_difficulty = 3
             dlg.player_color = chess.WHITE
-        dlg.timer_minutes = 10
-        dlg.use_timer = True
-        self._start_new_game(dlg)
-        self._show_game()
+            dlg.timer_minutes = 10
+            dlg.use_timer = True
+            self._start_new_game(dlg)
+            self._show_game()
 
     def _on_new_game(self):
         dlg = NewGameDialog(self.theme, self)
@@ -347,9 +352,33 @@ class MainWindow(QMainWindow):
     def _ai_make_move(self):
         if not self.ai or self.engine.is_game_over:
             return
-        move = self.ai.get_best_move(self.engine.board)
-        if move:
-            self.board_widget._execute_move(move)
+        self.info_panel.set_status("🤔 ИИ думает...")
+        self.board_widget.setEnabled(False)
+        import threading
+
+        result = [None]
+
+        def calc():
+            board_copy = self.engine.board.copy()
+            result[0] = self.ai.get_best_move(board_copy)
+
+        t = threading.Thread(target=calc, daemon=True)
+        t.start()
+
+        self._ai_wait_timer = QTimer(self)
+        self._ai_wait_timer.setInterval(50)
+
+        def check():
+            if not t.is_alive():
+                self._ai_wait_timer.stop()
+                self.board_widget.setEnabled(True)
+                if result[0]:
+                    self.board_widget._execute_move(result[0])
+                else:
+                    self.info_panel.set_status("")
+
+        self._ai_wait_timer.timeout.connect(check)
+        self._ai_wait_timer.start()
 
     def _on_online_game(self):
         dlg = OnlineDialog(self.theme, self)
