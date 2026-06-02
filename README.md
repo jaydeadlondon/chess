@@ -226,7 +226,7 @@ chess_game/
 - [x] Timer with timeout
 - [ ] Click-to-replay in move history
 - [ ] LAN server discovery (UDP broadcast)
-- [ ] Elo rating system
+- [x] Elo rating system
 
 ---
 
