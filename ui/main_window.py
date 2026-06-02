@@ -204,6 +204,9 @@ class MainWindow(QMainWindow):
     def _show_welcome(self):
         self._stack.setCurrentIndex(0)
         self.sounds.play("new_game")
+        from utils.elo import elo_to_display
+
+        self._welcome.update_elo(elo_to_display(self.stats.player_elo))
 
     def _show_game(self):
         self._stack.setCurrentIndex(1)
@@ -334,17 +337,20 @@ class MainWindow(QMainWindow):
         if white_timed_out:
             self.engine.board.turn = chess.WHITE
             outcome = "⏱ Время белых вышло! Чёрные победили."
+            result = "0-1"
         else:
             self.engine.board.turn = chess.BLACK
             outcome = "⏱ Время чёрных вышло! Белые победили."
+            result = "1-0"
         self.info_panel.set_status(outcome)
         self.statusBar().showMessage(outcome)
         self.sounds.play("checkmate")
         record_game(
             self.stats,
             self.game_mode,
-            "0-1" if white_timed_out else "1-0",
+            result,
             len(self.engine.move_history),
+            self.ai_difficulty,
         )
         if self.online_client:
             self.online_client.disconnect()
@@ -366,7 +372,13 @@ class MainWindow(QMainWindow):
         outcome = self.engine.outcome_text()
         self.info_panel.set_status(outcome)
         self.statusBar().showMessage(outcome)
-        record_game(self.stats, self.game_mode, result, len(self.engine.move_history))
+        record_game(
+            self.stats,
+            self.game_mode,
+            result,
+            len(self.engine.move_history),
+            self.ai_difficulty,
+        )
         if self.online_client:
             self.online_client.disconnect()
         dlg = GameOverDialog(outcome, self.theme, self)

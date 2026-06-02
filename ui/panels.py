@@ -166,7 +166,7 @@ class MoveHistoryPanel(QWidget):
             row_layout.addWidget(num_label)
 
             w_label = QLabel(white)
-            w_label.setFont(QFont("Consolas", 10, QFont.Weight.Medium))
+            w_label.setFont(QFont("Menlo", 10, QFont.Weight.Medium))
             w_label.setStyleSheet(
                 f"color: {self.theme.text_primary}; background: transparent; padding: 2px 6px; border-radius: 4px;"
             )
@@ -175,7 +175,7 @@ class MoveHistoryPanel(QWidget):
 
             if black:
                 b_label = QLabel(black)
-                b_label.setFont(QFont("Consolas", 10, QFont.Weight.Medium))
+                b_label.setFont(QFont("Menlo", 10, QFont.Weight.Medium))
                 b_label.setStyleSheet(
                     f"color: {self.theme.text_primary}; background: transparent; padding: 2px 6px; border-radius: 4px;"
                 )
@@ -264,7 +264,7 @@ class TimerWidget(QWidget):
         self.setStyleSheet(f"background-color: transparent;")
 
         self._white_label = QLabel("10:00")
-        self._white_label.setFont(QFont("Consolas", 16, QFont.Weight.Bold))
+        self._white_label.setFont(QFont("Menlo", 16, QFont.Weight.Bold))
         self._white_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._white_label.setMinimumWidth(80)
         self._update_timer_style(self._white_label, True)
@@ -277,7 +277,7 @@ class TimerWidget(QWidget):
         sep.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._black_label = QLabel("10:00")
-        self._black_label.setFont(QFont("Consolas", 16, QFont.Weight.Bold))
+        self._black_label.setFont(QFont("Menlo", 16, QFont.Weight.Bold))
         self._black_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._black_label.setMinimumWidth(80)
         self._update_timer_style(self._black_label, False)

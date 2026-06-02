@@ -20,6 +20,7 @@ class WelcomeWidget(QWidget):
     def __init__(self, theme: AppTheme, parent=None):
         super().__init__(parent)
         self.theme = theme
+        self._elo_label = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -44,6 +45,14 @@ class WelcomeWidget(QWidget):
         )
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         container.addWidget(title)
+
+        self._elo_label = QLabel("")
+        self._elo_label.setFont(QFont("Helvetica", 11))
+        self._elo_label.setStyleSheet(
+            f"color: {self.theme.accent}; background: transparent;"
+        )
+        self._elo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        container.addWidget(self._elo_label)
 
         subtitle = QLabel("Современная шахматная игра")
         subtitle.setFont(QFont("Helvetica", 12))
@@ -87,6 +96,10 @@ class WelcomeWidget(QWidget):
 
         layout.addLayout(container)
 
+    def update_elo(self, elo_text):
+        if self._elo_label:
+            self._elo_label.setText(elo_text)
+
     def paintEvent(self, event):
         from PyQt6.QtGui import QPainter, QColor
 
@@ -96,5 +109,8 @@ class WelcomeWidget(QWidget):
 
     def set_theme(self, theme):
         self.theme = theme
+        elo = self._elo_label.text() if self._elo_label else ""
         self._setup_ui()
+        if elo:
+            self._elo_label.setText(elo)
         self.update()
