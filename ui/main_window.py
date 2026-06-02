@@ -1,6 +1,5 @@
 import chess
 import threading
-from urllib.parse import urlparse
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -11,6 +10,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QMessageBox,
     QFileDialog,
+    QStackedWidget,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QAction
@@ -18,7 +18,9 @@ from PyQt6.QtGui import QFont, QAction
 from core.engine import ChessEngine
 from core.ai import ChessAI
 from core.network import OnlineClient
+from core.sound_manager import SoundManager
 from ui.board_widget import BoardWidget
+from ui.welcome_widget import WelcomeWidget
 from ui.panels import (
     MoveHistoryPanel,
     GameInfoPanel,
@@ -36,13 +38,14 @@ from ui.dialogs import (
 from ui.theme import AppTheme, get_theme, theme_names
 from utils.pgn_handler import save_game_pgn, load_game_pgn
 from utils.stats import load_stats, record_game, get_stats_summary
+from utils.generate_sounds import generate_all_sounds
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("♟ Chess Master")
-        self.setMinimumSize(900, 680)
+        self.setMinimumSize(960, 720)
         self.resize(1100, 750)
 
         self._current_theme_name = "Классика"
@@ -54,6 +57,11 @@ class MainWindow(QMainWindow):
         self.player_color = chess.WHITE
         self.online_client = None
         self.stats = load_stats()
+        self._waiting_dialog = None
+
+        generate_all_sounds()
+        self.sounds = SoundManager()
+        self.sounds.load()
 
         self._apply_global_style()
         self._build_menu()
@@ -68,9 +76,6 @@ class MainWindow(QMainWindow):
         self._online_poll = QTimer(self)
         self._online_poll.setInterval(100)
         self._online_poll.timeout.connect(self._online_tick)
-
-        self._pending_online_move = None
-        self._waiting_dialog = None
 
     def _apply_global_style(self):
         self.setStyleSheet(f"""
@@ -117,81 +122,102 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
 
         game_menu = menubar.addMenu("Игра")
-        act_new = QAction("▶ Новая игра", self)
-        act_new.setShortcut("Ctrl+N")
-        act_new.triggered.connect(self._on_new_game)
-        game_menu.addAction(act_new)
+        self._add_action(game_menu, "▶ Новая игра", "Ctrl+N", self._show_welcome)
         game_menu.addSeparator()
-        act_save = QAction("💾 Сохранить партию", self)
-        act_save.setShortcut("Ctrl+S")
-        act_save.triggered.connect(self._on_save_game)
-        game_menu.addAction(act_save)
-        act_load = QAction("📂 Загрузить партию", self)
-        act_load.setShortcut("Ctrl+O")
-        act_load.triggered.connect(self._on_load_game)
-        game_menu.addAction(act_load)
+        self._add_action(game_menu, "💾 Сохранить партию", "Ctrl+S", self._on_save_game)
+        self._add_action(game_menu, "📂 Загрузить партию", "Ctrl+O", self._on_load_game)
         game_menu.addSeparator()
-        act_quit = QAction("Выйти", self)
-        act_quit.setShortcut("Ctrl+Q")
-        act_quit.triggered.connect(self.close)
-        game_menu.addAction(act_quit)
+        self._add_action(game_menu, "Выйти", "Ctrl+Q", self.close)
 
         view_menu = menubar.addMenu("Вид")
-        act_flip = QAction("🔃 Перевернуть доску", self)
-        act_flip.setShortcut("Ctrl+F")
-        act_flip.triggered.connect(self._on_flip)
-        view_menu.addAction(act_flip)
+        self._add_action(view_menu, "🔃 Перевернуть доску", "Ctrl+F", self._on_flip)
         themes_menu = view_menu.addMenu("🎨 Тема")
         for name in theme_names():
             act = QAction(name, self)
             act.triggered.connect(lambda checked, n=name: self._change_theme(n))
             themes_menu.addAction(act)
 
+        sound_menu = menubar.addMenu("Звук")
+        self._sound_toggle_action = QAction("🔊 Звук вкл", self)
+        self._sound_toggle_action.triggered.connect(self._toggle_sound)
+        sound_menu.addAction(self._sound_toggle_action)
+
         help_menu = menubar.addMenu("Справка")
-        act_stats = QAction("📊 Статистика", self)
-        act_stats.triggered.connect(self._show_stats)
-        help_menu.addAction(act_stats)
-        act_about = QAction("О программе", self)
-        act_about.triggered.connect(self._show_about)
-        help_menu.addAction(act_about)
+        self._add_action(help_menu, "📊 Статистика", None, self._show_stats)
+        self._add_action(help_menu, "О программе", None, self._show_about)
+
+    def _add_action(self, menu, text, shortcut, callback):
+        act = QAction(text, self)
+        if shortcut:
+            act.setShortcut(shortcut)
+        act.triggered.connect(callback)
+        menu.addAction(act)
 
     def _build_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        main_layout = QHBoxLayout(central)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(16)
+        self._stack = QStackedWidget()
+        self.setCentralWidget(self._stack)
 
-        board_container = QVBoxLayout()
-        board_container.setSpacing(8)
+        self._welcome = WelcomeWidget(self.theme)
+        self._welcome.new_pvp.connect(lambda: self._quick_start("pvp"))
+        self._welcome.new_ai.connect(lambda: self._quick_start("ai"))
+        self._welcome.new_online.connect(self._on_online_game)
+        self._stack.addWidget(self._welcome)
+
+        self._game_page = QWidget()
+        game_layout = QHBoxLayout(self._game_page)
+        game_layout.setContentsMargins(16, 16, 16, 16)
+        game_layout.setSpacing(16)
+
+        board_side = QVBoxLayout()
+        board_side.setSpacing(8)
         self.timer_widget = TimerWidget(self.theme)
-        board_container.addWidget(self.timer_widget)
+        board_side.addWidget(self.timer_widget)
         self.board_widget = BoardWidget(self.engine, self, self.theme)
-        board_container.addWidget(
-            self.board_widget, alignment=Qt.AlignmentFlag.AlignCenter
-        )
-        board_container.addStretch()
-        main_layout.addLayout(board_container, stretch=3)
+        board_side.addWidget(self.board_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+        board_side.addStretch()
+        game_layout.addLayout(board_side, stretch=3)
 
-        right_panel = QVBoxLayout()
-        right_panel.setSpacing(10)
+        right = QVBoxLayout()
+        right.setSpacing(10)
         self.info_panel = GameInfoPanel(self.theme)
-        right_panel.addWidget(self.info_panel)
+        right.addWidget(self.info_panel)
         self.history_panel = MoveHistoryPanel(self.theme)
         self.history_panel.setMinimumHeight(250)
-        right_panel.addWidget(self.history_panel, stretch=1)
+        right.addWidget(self.history_panel, stretch=1)
         self.control_panel = ControlPanel(self.theme)
-        right_panel.addWidget(self.control_panel)
-        main_layout.addLayout(right_panel, stretch=1)
+        right.addWidget(self.control_panel)
+        game_layout.addLayout(right, stretch=1)
+
+        self._stack.addWidget(self._game_page)
+        self._stack.setCurrentIndex(0)
 
         self.statusBar().showMessage("Готово к игре  |  Ctrl+N — новая игра")
 
     def _connect_signals(self):
         self.board_widget.on_move_made = self._on_move_made
         self.board_widget.on_promotion_needed = self._on_promotion_needed
-        self.control_panel.new_game_clicked.connect(self._on_new_game)
+        self.control_panel.new_game_clicked.connect(self._show_welcome)
         self.control_panel.undo_clicked.connect(self._on_undo)
         self.control_panel.flip_clicked.connect(self._on_flip)
+
+    def _show_welcome(self):
+        self._stack.setCurrentIndex(0)
+        self.sounds.play("new_game")
+
+    def _show_game(self):
+        self._stack.setCurrentIndex(1)
+
+    def _quick_start(self, mode):
+        dlg = NewGameDialog(self.theme, self)
+        dlg.mode = mode
+        dlg._set_mode(mode)
+        if mode == "ai":
+            dlg.ai_difficulty = 3
+            dlg.player_color = chess.WHITE
+        dlg.timer_minutes = 10
+        dlg.use_timer = True
+        self._start_new_game(dlg)
+        self._show_game()
 
     def _on_new_game(self):
         dlg = NewGameDialog(self.theme, self)
@@ -200,6 +226,7 @@ class MainWindow(QMainWindow):
                 self._on_online_game()
             else:
                 self._start_new_game(dlg)
+                self._show_game()
 
     def _start_new_game(self, settings):
         self.engine.reset()
@@ -227,6 +254,9 @@ class MainWindow(QMainWindow):
         self.history_panel.clear()
         self.board_widget._deselect()
         self.board_widget.update()
+        self.board_widget.setEnabled(True)
+
+        self.sounds.play("new_game")
 
         mode_text = {
             "pvp": "Локальная игра",
@@ -250,6 +280,22 @@ class MainWindow(QMainWindow):
                 move.from_square, move.to_square, move.promotion
             )
 
+        is_capture = (
+            self.engine.board.is_capture(move)
+            if hasattr(self.engine.board, "is_capture")
+            else False
+        )
+        if self.engine.is_en_passant(move) or self.engine.piece_at(move.to_square):
+            is_capture = True
+        is_castle = self.engine.is_castling(move)
+
+        if is_castle:
+            self.sounds.play("castle")
+        elif is_capture:
+            self.sounds.play("capture")
+        else:
+            self.sounds.play("move")
+
         self.info_panel.set_turn(self.engine.is_white_turn)
         self.history_panel.update_moves(self.engine.get_s_move_history())
 
@@ -257,10 +303,12 @@ class MainWindow(QMainWindow):
             self.timer_widget.switch_turn()
 
         if self.engine.is_game_over:
+            self.sounds.play("checkmate")
             self._on_game_over()
             return
 
         if self.engine.is_check:
+            self.sounds.play("check")
             self.info_panel.set_status("⚠ Шах!")
         else:
             self.info_panel.set_status("")
@@ -294,7 +342,7 @@ class MainWindow(QMainWindow):
             self.online_client.disconnect()
         dlg = GameOverDialog(outcome, self.theme, self)
         if dlg.exec() == GameOverDialog.DialogCode.Accepted:
-            self._on_new_game()
+            self._show_welcome()
 
     def _ai_make_move(self):
         if not self.ai or self.engine.is_game_over:
@@ -320,6 +368,8 @@ class MainWindow(QMainWindow):
             self._online_join_room(dlg)
 
     def _online_create_room(self, settings):
+        from urllib.parse import urlparse
+
         server_url = settings.server_url
         is_local = "localhost" in server_url or "127.0.0.1" in server_url
         if is_local:
@@ -413,6 +463,7 @@ class MainWindow(QMainWindow):
             self.info_panel.set_status("Ваш ход! Вы играете белыми.")
 
         self.board_widget.update()
+        self._show_game()
         self._online_poll.start()
 
         opp_name = self.online_client.opponent_name if self.online_client else ""
@@ -459,10 +510,15 @@ class MainWindow(QMainWindow):
     def _on_flip(self):
         self.board_widget.flip_board()
 
+    def _toggle_sound(self):
+        on = self.sounds.toggle()
+        self._sound_toggle_action.setText("🔊 Звук вкл" if on else "🔇 Звук выкл")
+
     def _change_theme(self, name):
         self._current_theme_name = name
         self.theme = get_theme(name)
         self.board_widget.set_theme(self.theme)
+        self._welcome.set_theme(self.theme)
         self._apply_global_style()
         self._refresh_panels()
 
@@ -504,6 +560,7 @@ class MainWindow(QMainWindow):
             self.history_panel.update_moves(self.engine.get_s_move_history())
             self.board_widget._deselect()
             self.board_widget.update()
+            self._show_game()
             self.statusBar().showMessage(f"Загружено {len(moves)} ходов", 3000)
 
     def _show_stats(self):

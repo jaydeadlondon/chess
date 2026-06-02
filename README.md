@@ -218,7 +218,6 @@ chess_game/
 - [ ] LAN server discovery (UDP broadcast)
 - [ ] Friend connects by link (embedded server)
 - [ ] Elo rating system
-- [ ] Tournament mode
 
 ---
 
