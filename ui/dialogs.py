@@ -97,19 +97,19 @@ class PromotionDialog(QDialog):
 
 
 class NewGameDialog(QDialog):
-
     MODE_PVP = "pvp"
     MODE_AI = "ai"
     MODE_ONLINE = "online"
 
-    def __init__(self, theme: AppTheme, parent=None):
+    def __init__(self, theme, parent=None, fixed_mode=None):
         super().__init__(parent)
         self.theme = theme
-        self.mode = self.MODE_PVP
+        self.mode = fixed_mode or self.MODE_PVP
         self.ai_difficulty = 3
         self.player_color = chess.WHITE
         self.timer_minutes = 10
         self.use_timer = True
+        self._fixed_mode = fixed_mode
         self._setup_ui()
 
     def _setup_ui(self):
@@ -128,7 +128,12 @@ class NewGameDialog(QDialog):
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
 
-        title = QLabel("♟ Новая игра")
+        if self._fixed_mode == self.MODE_AI:
+            title = QLabel("🤖 Против компьютера")
+        elif self._fixed_mode == self.MODE_PVP:
+            title = QLabel("👥 Локальная игра")
+        else:
+            title = QLabel("♟ Новая игра")
         title.setFont(QFont("Helvetica", 16, QFont.Weight.Bold))
         title.setStyleSheet(
             f"color: {self.theme.text_primary}; background: transparent;"
@@ -136,14 +141,19 @@ class NewGameDialog(QDialog):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
+        self._mode_group = QButtonGroup(self)
+        self._mode_container = QWidget()
+        mode_layout = QVBoxLayout(self._mode_container)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(4)
+
         mode_label = QLabel("Режим игры:")
         mode_label.setFont(QFont("Helvetica", 10))
         mode_label.setStyleSheet(
             f"color: {self.theme.text_secondary}; background: transparent;"
         )
-        layout.addWidget(mode_label)
+        mode_layout.addWidget(mode_label)
 
-        self._mode_group = QButtonGroup(self)
         modes = [
             (self.MODE_PVP, "👥 Локальная игра (2 игрока)"),
             (self.MODE_AI, "🤖 Против компьютера"),
@@ -162,13 +172,15 @@ class NewGameDialog(QDialog):
                     width: 16px; height: 16px;
                 }}
             """)
-            if mode_id == self.MODE_PVP:
+            if mode_id == self.mode:
                 rb.setChecked(True)
             self._mode_group.addButton(rb)
-            layout.addWidget(rb)
+            mode_layout.addWidget(rb)
             rb.toggled.connect(
                 lambda checked, m=mode_id: self._set_mode(m) if checked else None
             )
+
+        layout.addWidget(self._mode_container)
 
         self._diff_widget = QWidget()
         self._diff_widget.setStyleSheet("background: transparent;")
@@ -279,7 +291,14 @@ class NewGameDialog(QDialog):
         btn_layout.addWidget(btn_start)
         layout.addLayout(btn_layout)
 
-    def _set_mode(self, mode: str):
+        if self._fixed_mode:
+            self._mode_container.hide()
+            self._set_mode(self._fixed_mode)
+            self.setFixedHeight(320)
+        elif self.mode == self.MODE_AI:
+            self._set_mode(self.MODE_AI)
+
+    def _set_mode(self, mode):
         self.mode = mode
         self._diff_widget.setVisible(mode == self.MODE_AI)
         self._color_widget.setVisible(mode == self.MODE_AI)
@@ -303,7 +322,6 @@ class NewGameDialog(QDialog):
 
 
 class GameOverDialog(QDialog):
-
     def __init__(self, result_text: str, theme: AppTheme, parent=None):
         super().__init__(parent)
         self.theme = theme
@@ -355,7 +373,6 @@ class GameOverDialog(QDialog):
 
 
 class OnlineDialog(QDialog):
-
     DEFAULT_SERVER = "ws://localhost:8765"
 
     def __init__(self, theme: AppTheme, parent=None):
@@ -523,7 +540,6 @@ class OnlineDialog(QDialog):
 
 
 class WaitingForOpponentDialog(QDialog):
-
     def __init__(self, room_code: str, theme: AppTheme, parent=None):
         super().__init__(parent)
         self.theme = theme
@@ -547,12 +563,14 @@ class WaitingForOpponentDialog(QDialog):
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
 
+        # Spinner
         spinner = QLabel("⏳")
         spinner.setFont(QFont("Helvetica", 36))
         spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
         spinner.setStyleSheet("background: transparent;")
         layout.addWidget(spinner)
 
+        # Title
         title = QLabel("Ожидание соперника")
         title.setFont(QFont("Helvetica", 14, QFont.Weight.Bold))
         title.setStyleSheet(

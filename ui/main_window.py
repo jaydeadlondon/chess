@@ -213,19 +213,18 @@ class MainWindow(QMainWindow):
 
     def _quick_start(self, mode):
         if mode == "ai":
-            dlg = NewGameDialog(self.theme, self)
-            dlg._set_mode(mode)
+            dlg = NewGameDialog(self.theme, self, fixed_mode="ai")
             if dlg.exec() == NewGameDialog.DialogCode.Accepted:
                 self._start_new_game(dlg)
                 self._show_game()
         else:
-            dlg = NewGameDialog(self.theme, self)
-            dlg.mode = mode
-            dlg.ai_difficulty = 3
-            dlg.player_color = chess.WHITE
-            dlg.timer_minutes = 10
-            dlg.use_timer = True
-            self._start_new_game(dlg)
+            settings = NewGameDialog(self.theme, self)
+            settings.mode = mode
+            settings.ai_difficulty = 3
+            settings.player_color = chess.WHITE
+            settings.timer_minutes = 10
+            settings.use_timer = True
+            self._start_new_game(settings)
             self._show_game()
 
     def _on_new_game(self):
